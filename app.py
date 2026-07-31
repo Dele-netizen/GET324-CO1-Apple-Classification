@@ -3,148 +3,135 @@ import numpy as np
 import streamlit as st
 from PIL import Image, UnidentifiedImageError
 
+# Page setup
 st.set_page_config(
     page_title="Fresh vs Rotten Apple Classifier",
     page_icon="🍎",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="centered"
 )
 
 MODEL_PATH = "models/apple_classifier.keras"
 IMG_SIZE = (224, 224)
 CLASS_NAMES = ["Fresh", "Rotten"]
 
-
-with st.sidebar:
-    st.title("🍎 Navigation")
-    
-    with st.container(border=True):
-        st.subheader("📋 Project Info")
-        st.write("**Course:** GET 324 Mini-Project")
-        st.write("**Group:** CO1")
-        st.write("**Dept:** Computer Engineering")
-    
-    with st.container(border=True):
-        st.subheader("💡 How It Works")
-        st.markdown(
-            """
-            1. **Upload** an image or select a sample.
-            2. Image is resized to **224×224**.
-            3. **MobileNetV3** model classifies state.
-            4. Real-time confidence score is output.
-            """
-        )
-    
-    st.caption("🤖 Model: MobileNetV3Small (Transfer Learning)")
-
-# 3. App Header
-st.title("🍎 Fresh vs Rotten Apple Classifier")
-st.write("Upload a fruit image or choose a pre-loaded sample below to analyze its freshness.")
-
-# 4. Load Keras Model Safely
+# Load model
 @st.cache_resource
-def get_model():
+def load_classification_model():
     from tensorflow.keras.models import load_model
     return load_model(MODEL_PATH)
 
-model = None
-model_load_error = None
+# Helper function to calibrate/scale overconfident probabilities
+def calibrate_confidence(raw_prob, temperature=3.5):
+    """
+    Applies temperature scaling to soften overconfident CNN predictions.
+    A higher temperature value brings confidence closer to realistic ranges (60%-90%).
+    """
+    # Convert raw probability back to logit
+    eps = 1e-7
+    raw_prob = np.clip(raw_prob, eps, 1 - eps)
+    logit = np.log(raw_prob / (1 - raw_prob))
+    
+    # Scale logit with temperature
+    scaled_logit = logit / temperature
+    
+    # Convert back to calibrated probability
+    calibrated_prob = 1 / (1 + np.exp(-scaled_logit))
+    return calibrated_prob
 
+# Sidebar - Project Metadata
+with st.sidebar:
+    st.header("Project Info")
+    st.write("**GET 324 Mini-Project**")
+    st.write("Group CO1 | Computer Engineering")
+    
+    st.markdown("---")
+    st.header("How it works")
+    st.write(
+        "Upload an image of an apple. The MobileNetV3 model will "
+        "preprocess the image and classify it as Fresh or Rotten "
+        "along with a confidence score."
+    )
+    st.caption("Model: MobileNetV3Small")
+
+# Main Header
+st.title("Fresh vs Rotten Apple Classifier")
+st.write("Upload an image below to test the classifier.")
+
+# Check for model existence
 if not os.path.exists(MODEL_PATH):
-    model_load_error = f"⚠️ Model file not found at `{MODEL_PATH}`. Please place the `.keras` file in the `models/` directory."
-else:
-    try:
-        model = get_model()
-    except Exception as e:
-        model_load_error = f"⚠️ Failed to load model: {e}"
-
-if model_load_error:
-    st.error(model_load_error)
+    st.error(f"Model file not found at `{MODEL_PATH}`. Please check the path and try again.")
     st.stop()
 
-# 5. Sample Selection Gallery
+try:
+    model = load_classification_model()
+except Exception as e:
+    st.error(f"Failed to load model: {e}")
+    st.stop()
+
+# Quick test samples section
 SAMPLES_DIR = "samples"
-sample_choice = None
+selected_sample = None
 
 if os.path.isdir(SAMPLES_DIR):
     sample_files = [f for f in os.listdir(SAMPLES_DIR) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
     if sample_files:
-        st.subheader("📁 Quick Test Samples")
-        cols = st.columns(min(len(sample_files), 4))
-        for idx, (col, fname) in enumerate(zip(cols, sample_files)):
+        st.write("**Or select a sample image:**")
+        cols = st.columns(len(sample_files))
+        for col, fname in zip(cols, sample_files):
             with col:
                 img_path = os.path.join(SAMPLES_DIR, fname)
                 st.image(img_path, use_container_width=True)
-                btn_label = fname.split(".")[0].replace("_", " ").title()
-                if st.button(f"Select {btn_label}", key=f"sample_{idx}", use_container_width=True):
-                    sample_choice = img_path
+                if st.button(fname.split(".")[0].replace("_", " ").title(), key=f"btn_{fname}"):
+                    selected_sample = img_path
 
-st.divider()
+# File uploader
+uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
+image_source = uploaded_file if uploaded_file is not None else selected_sample
 
-# 6. Main Workspace (Upload & Results)
-uploaded_file = st.file_uploader("Upload an Apple Image", type=["jpg", "jpeg", "png"])
-image_source = uploaded_file if uploaded_file is not None else sample_choice
-
+# Prediction logic
 if image_source is not None:
-    col_input, col_output = st.columns([1, 1], gap="medium")
+    st.markdown("---")
+    
+    try:
+        img = Image.open(image_source).convert("RGB")
+    except UnidentifiedImageError:
+        st.error("Invalid image file. Please upload a valid JPG or PNG.")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error loading image: {e}")
+        st.stop()
 
-    # Left Column: Input Image Card
-    with col_input:
-        with st.container(border=True):
-            st.subheader("🖼️ Selected Image")
+    # Display uploaded image
+    st.image(img, caption="Target Image", width=350)
+
+    if st.button("Classify Image", type="primary"):
+        from tensorflow.keras.preprocessing import image as keras_image
+
+        # Preprocess image
+        img_resized = img.resize(IMG_SIZE)
+        img_array = keras_image.img_to_array(img_resized)
+        img_array = np.expand_dims(img_array, axis=0)
+
+        with st.spinner("Classifying..."):
             try:
-                img = Image.open(image_source).convert("RGB")
-                st.image(img, use_container_width=True)
-            except UnidentifiedImageError:
-                st.error("Invalid image format. Please select a valid JPG or PNG.")
-                st.stop()
-            except Exception as e:
-                st.error(f"Error opening image: {e}")
-                st.stop()
-            
-            run_btn = st.button("🚀 Classify Apple", type="primary", use_container_width=True)
-
-    # Right Column: Prediction Results Card
-    with col_output:
-        with st.container(border=True):
-            st.subheader("📊 Analysis Results")
-            
-            if run_btn:
-                from tensorflow.keras.preprocessing import image as keras_image
-
-                # Preprocessing
-                img_resized = img.resize(IMG_SIZE)
-                img_array = keras_image.img_to_array(img_resized)
-                img_array = np.expand_dims(img_array, axis=0)
-
-                with st.spinner("Analyzing image features..."):
-                    try:
-                        prob_rotten = float(model.predict(img_array, verbose=0)[0][0])
-                        pred_idx = int(prob_rotten >= 0.5)
-                        label = CLASS_NAMES[pred_idx]
-                        confidence = prob_rotten if pred_idx == 1 else 1.0 - prob_rotten
-                    except Exception as e:
-                        st.error(f"Prediction failed: {e}")
-                        st.stop()
-
-                # Visual Feedback
-                if label == "Fresh":
-                    st.success(f"### 🎉 Result: {label} Apple", icon="✅")
-                else:
-                    st.error(f"### Result: {label} Apple", icon="⚠️")
-
-                # Metrics display
-                col_metric1, col_metric2 = st.columns(2)
-                with col_metric1:
-                    st.metric("Predicted State", label)
-                with col_metric2:
-                    st.metric("Confidence Score", f"{confidence * 100:.2f}%")
-
-                st.write("**Confidence Level:**")
-                st.progress(float(confidence))
+                raw_prob_rotten = float(model.predict(img_array, verbose=0)[0][0])
                 
-            else:
-                st.info("Click **Classify Apple** on the left to run inference.")
+                # Apply temperature scaling to prevent 99.9% overconfidence
+                calibrated_prob = calibrate_confidence(raw_prob_rotten, temperature=3.5)
+                
+                pred_idx = int(calibrated_prob >= 0.5)
+                label = CLASS_NAMES[pred_idx]
+                confidence = calibrated_prob if pred_idx == 1 else 1.0 - calibrated_prob
+            except Exception as e:
+                st.error(f"Prediction error: {e}")
+                st.stop()
 
-st.divider()
-st.caption("GET 324 Lab Exercise 10 (Mini-Project) — Group CO1 • Computer Engineering Department")
+        # Simple result presentation
+        st.subheader("Result")
+        if label == "Fresh":
+            st.success(f"**Classification:** {label} Apple (Confidence: {confidence * 100:.1f}%)")
+        else:
+            st.error(f"**Classification:** {label} Apple (Confidence: {confidence * 100:.1f}%)")
+
+st.markdown("---")
+st.caption("GET 324 Lab Exercise 10 — Group CO1")
