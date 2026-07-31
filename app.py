@@ -1,44 +1,115 @@
 import os
 import streamlit as st
 import numpy as np
-from tensorflow.keras.preprocessing import image
 from PIL import Image, UnidentifiedImageError
 
-# Page config
-st.set_page_config(page_title="FRESH VS ROTTEN APPLE CLASSIFIER", page_icon="🍎", layout="centered")
+# Page setup
+st.set_page_config(
+    page_title="Fresh vs Rotten Apple Classifier",
+    page_icon="🍎",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom Styling (Pure Python + CSS Injection)
+st.markdown("""
+    <style>
+    /* Main Background & Fonts */
+    .main {
+        background-color: #0E1117;
+    }
+    
+    /* Card Containers */
+    .css-card {
+        background-color: #1E222A;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid #2D3139;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    /* Custom Headers */
+    .main-title {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: #FFFFFF;
+        margin-bottom: 0.2rem;
+    }
+    .sub-title {
+        color: #9CA3AF;
+        font-size: 1rem;
+        margin-bottom: 2rem;
+    }
+    
+    /* Status Badges */
+    .badge-fresh {
+        background-color: rgba(34, 197, 94, 0.15);
+        color: #4ADE80;
+        border: 1px solid #22C55E;
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 1.2rem;
+        text-align: center;
+        margin-bottom: 12px;
+    }
+    .badge-rotten {
+        background-color: rgba(239, 68, 68, 0.15);
+        color: #F87171;
+        border: 1px solid #EF4444;
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 1.2rem;
+        text-align: center;
+        margin-bottom: 12px;
+    }
+    
+    /* Sidebar Styling */
+    section[data-testid="stSidebar"] {
+        background-color: #161920;
+        border-right: 1px solid #2D3139;
+    }
+    
+    /* Primary Action Buttons */
+    .stButton > button {
+        width: 100%;
+        border-radius: 8px;
+        font-weight: 600;
+        border: none;
+        transition: all 0.2s ease;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 MODEL_PATH = "models/apple_classifier.keras"
 IMG_SIZE = (224, 224)
-# This must match the class_names printed at the end of the training notebook
-CLASS_NAMES = ["Fresh", "Rotten"]  # index 0 -> Fresh, index 1 -> Rotten
+CLASS_NAMES = ["Fresh", "Rotten"]
 
-# Sidebar
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("ABOUT THIS PROJECT")
-    st.write(
-        "**GET 324 Mini-Project**\n\n"
-        "Group CO1\n\n"
-        "COMPUTER ENGINEERING\n\n"
-        "TASK: Fresh Apple vs Rotten Apple"
+    st.markdown("### 📌 About Project")
+    st.info("**GET 324 Mini-Project** | Group CO1\n\nComputer Engineering Department")
+    
+    st.markdown("---")
+    st.markdown("### ⚙️ How It Works")
+    st.markdown(
+        """
+        1. **Input:** Upload an image or select a pre-loaded sample.
+        2. **Preprocessing:** Image is scaled to $224 \\times 224$ px.
+        3. **Inference:** MobileNetV3 CNN evaluates features.
+        4. **Output:** Class label & confidence percentage returned.
+        """
     )
     st.markdown("---")
-    st.write("**HOW IT WORKS**")
-    st.write(
-        "1. Upload an apple photo (or try a sample below)\n"
-        "2. The model resizes and normalizes the image\n"
-        "3. A MobileNetV3-based CNN predicts Fresh vs Rotten\n"
-        "4. You get a label plus a confidence score"
-    )
-    st.markdown("---")
-    st.caption("Model: MobileNetV3Small transfer learning.")
+    st.caption("🤖 **Architecture:** MobileNetV3Small (Transfer Learning)")
 
-st.title("🍎 FRESH VS ROTTEN APPLE CLASSIFIER")
-st.write(
-    "Upload a photo of an apple and the model will predict whether it is "
-    "**Fresh** or **Rotten**."
-)
+# --- MAIN CONTENT ---
+st.markdown('<div class="main-title">🍎 Fresh vs Rotten Apple Classifier</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Upload an image of an apple to run real-time quality classification.</div>', unsafe_allow_html=True)
 
-# Load model (cached so it only loads once), with graceful error handling
+# Cache model loading
 @st.cache_resource
 def get_model():
     from tensorflow.keras.models import load_model
@@ -48,11 +119,7 @@ model = None
 model_load_error = None
 
 if not os.path.exists(MODEL_PATH):
-    model_load_error = (
-        f"Model file not found at `{MODEL_PATH}`. Train the model using "
-        "the CO1 training notebook and make sure the trained model file is saved "
-        "into the `models/` folder before running this app."
-    )
+    model_load_error = f"Model file not found at `{MODEL_PATH}`. Please place the model file in the `models/` directory."
 else:
     try:
         model = get_model()
@@ -63,67 +130,91 @@ if model_load_error:
     st.error(model_load_error)
     st.stop()
 
-# Sample images (optional quick-test gallery)
-# Place a few sample images in a "samples/" folder next to app.py, e.g.:
-#   samples/fresh_1.jpg, samples/rotten_1.jpg
+# Interactive Sample Gallery
 SAMPLES_DIR = "samples"
 sample_choice = None
 
 if os.path.isdir(SAMPLES_DIR):
     sample_files = [f for f in os.listdir(SAMPLES_DIR) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
     if sample_files:
-        st.write("**Or try a sample image:**")
-        cols = st.columns(len(sample_files))
-        for col, fname in zip(cols, sample_files):
+        st.markdown("##### 📁 Or test with a sample image:")
+        cols = st.columns(min(len(sample_files), 4))
+        for idx, (col, fname) in enumerate(zip(cols, sample_files)):
             with col:
-                st.image(os.path.join(SAMPLES_DIR, fname), use_container_width=True)
-                if st.button(fname.split(".")[0].replace("_", " ").title(), key=f"sample_{fname}"):
-                    sample_choice = os.path.join(SAMPLES_DIR, fname)
+                img_path = os.path.join(SAMPLES_DIR, fname)
+                st.image(img_path, use_container_width=True)
+                clean_name = fname.split(".")[0].replace("_", " ").title()
+                if st.button(f"Use {clean_name}", key=f"sample_{idx}"):
+                    sample_choice = img_path
 
-st.markdown("---")
-
-# Image upload + prediction
-uploaded_file = st.file_uploader("Upload an apple image", type=["jpg", "jpeg", "png"])
-
+# File Upload Section
+uploaded_file = st.file_uploader("Choose an apple image...", type=["jpg", "jpeg", "png"])
 image_source = uploaded_file if uploaded_file is not None else sample_choice
 
+# Layout Split: Display Input Image + Results side by side
 if image_source is not None:
-    try:
-        img = Image.open(image_source).convert("RGB")
-    except UnidentifiedImageError:
-        st.error("The uploaded file doesn't look like a valid image. Please try a different JPG or PNG.")
-        st.stop()
-    except Exception as e:
-        st.error(f"Couldn't open that image: {e}")
-        st.stop()
+    st.markdown("---")
+    col_img, col_res = st.columns([1, 1], gap="large")
 
-    st.image(img, caption="Selected image", use_container_width=True)
-
-    # Preprocess to match training pipeline
-    img_resized = img.resize(IMG_SIZE)
-    img_array = image.img_to_array(img_resized)  # keep raw 0-255 values — the model rescales internally
-    img_array = np.expand_dims(img_array, axis=0)
-
-    if st.button("Classify Apple"):
+    with col_img:
+        st.markdown('<div class="css-card">', unsafe_allow_html=True)
+        st.markdown("#### Selected Image")
         try:
-            with st.spinner("Analyzing image..."):
-                prob_rotten = float(model.predict(img_array, verbose=0)[0][0])  # sigmoid: P(class = "Rotten")
-                pred_idx = int(prob_rotten >= 0.5)
-                label = CLASS_NAMES[pred_idx]
-                confidence = prob_rotten if pred_idx == 1 else 1.0 - prob_rotten
-        except Exception as e:
-            st.error(f"Prediction failed: {e}")
+            img = Image.open(image_source).convert("RGB")
+            st.image(img, use_container_width=True)
+        except UnidentifiedImageError:
+            st.error("Invalid image format. Upload a valid JPG or PNG.")
             st.stop()
+        except Exception as e:
+            st.error(f"Error opening image: {e}")
+            st.stop()
+        
+        classify_btn = st.button("🔍 Run Classification", type="primary")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        st.subheader("Result")
-        if label == "Fresh":
-            st.success(f"✅ {label} — confidence: {confidence * 100:.2f}%")
+    with col_res:
+        st.markdown('<div class="css-card">', unsafe_allow_html=True)
+        st.markdown("#### Analysis & Result")
+        
+        if classify_btn:
+            from tensorflow.keras.preprocessing import image as keras_image
+
+            # Preprocess image
+            img_resized = img.resize(IMG_SIZE)
+            img_array = keras_image.img_to_array(img_resized)
+            img_array = np.expand_dims(img_array, axis=0)
+
+            with st.spinner("Analyzing visual features..."):
+                try:
+                    prob_rotten = float(model.predict(img_array, verbose=0)[0][0])
+                    pred_idx = int(prob_rotten >= 0.5)
+                    label = CLASS_NAMES[pred_idx]
+                    confidence = prob_rotten if pred_idx == 1 else 1.0 - prob_rotten
+                except Exception as e:
+                    st.error(f"Prediction failed: {e}")
+                    st.stop()
+
+            # Result Badge
+            if label == "Fresh":
+                st.markdown('<div class="badge-fresh">✅ FRESH APPLE</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="badge-rotten">⚠️ ROTTEN APPLE</div>', unsafe_allow_html=True)
+
+            # Confidence Score Representation
+            st.metric(label="Model Confidence Score", value=f"{confidence * 100:.2f}%")
+            st.progress(float(confidence))
+
+            st.markdown(
+                f"""
+                **Summary:**  
+                The vision model predicts with **{confidence * 100:.2f}%** certainty that this sample belongs to the **{label.lower()}** category.
+                """
+            )
         else:
-            st.error(f"⚠️ {label} — confidence: {confidence * 100:.2f}%")
+            st.info("Click **Run Classification** on the left to analyze the selected image.")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        st.progress(float(confidence))
-
+# Footer
 st.markdown("---")
-st.caption(
-    "Built for GET 324 Lab Exercise 10 (Mini-Project) — Group CO1."
-)
+st.caption("GET 324 Lab Exercise 10 (Mini-Project) — Group CO1 • Computer Engineering Department")
